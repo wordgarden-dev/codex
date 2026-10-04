@@ -8778,6 +8778,42 @@ mod tests {
         assert_eq!(composer.draft.textarea.text(), "你　好\nhi");
     }
 
+    /// A Windows terminal may deliver a pasted card identity as individual key events rather than
+    /// one bracketed-paste event. Preserve both the BMP suit and its variation selector when the
+    /// paste-burst heuristic reconstructs that input.
+    #[test]
+    fn non_ascii_burst_preserves_emoji_card_identity() {
+        use crossterm::event::KeyCode;
+        use crossterm::event::KeyEvent;
+        use crossterm::event::KeyModifiers;
+
+        let (tx, _rx) = unbounded_channel::<AppEvent>();
+        let sender = AppEventSender::new(tx);
+        let mut composer = ChatComposer::new(
+            /*has_input_focus*/ true,
+            sender,
+            /*enhanced_keys_supported*/ false,
+            "Ask Codex to do anything".to_string(),
+            /*disable_paste_burst*/ false,
+        );
+
+        let now = Instant::now();
+        for (offset_ms, ch) in "🦸8♣️".chars().enumerate() {
+            let input = KeyEvent::new(KeyCode::Char(ch), KeyModifiers::NONE);
+            let _ = composer.handle_input_basic_with_time(
+                input,
+                now + Duration::from_millis(offset_ms as u64),
+            );
+        }
+
+        if composer.is_in_paste_burst() {
+            assert!(
+                composer.handle_paste_burst_flush(now + PasteBurst::recommended_flush_delay())
+            );
+        }
+        assert_eq!(composer.draft.textarea.text(), "🦸8♣️");
+    }
+
     /// Behavior: a large multi-line payload containing both non-ASCII and ASCII (e.g. "UTF-8",
     /// "Unicode") should be captured as a single paste-like burst, and Enter key events should
     /// become `\n` within the buffered content.
